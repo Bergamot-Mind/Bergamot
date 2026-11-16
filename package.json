@@ -1,0 +1,11 @@
+{
+  "name": "bergamot",
+  "private": true,
+  "type": "module",
+  "version": "1.0.0",
+  "description": "Bergamot — Mind: a calm journal with prompts that know your shifts, notes with [[links]] and checklists, and the tasks and habits that move your goals. A PWA with no build step.",
+  "scripts": {
+    "test": "bash test/all.sh",
+    "bump": "sh scripts-bump.sh"
+  }
+}

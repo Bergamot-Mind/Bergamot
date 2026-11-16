@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <radialGradient id="fruit" cx="38%" cy="34%" r="70%"><stop offset="0" stop-color="#f3f7c4"/><stop offset=".55" stop-color="#cfdc6e"/><stop offset="1" stop-color="#8fa83c"/></radialGradient>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#14504d"/><stop offset="1" stop-color="#0b2f2e"/></linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <path d="M268 118c34-30 86-34 118-14-22 36-66 56-112 48" fill="#5fae8f"/>
+  <path d="M262 150c4-22 12-40 26-56" stroke="#2f6b52" stroke-width="12" stroke-linecap="round" fill="none"/>
+  <path d="M256 160c-100 0-168 72-168 156 0 80 68 132 168 132s168-52 168-132c0-84-68-156-168-156z" fill="url(#fruit)"/>
+  <g fill="#9cb24a" opacity=".55"><circle cx="196" cy="258" r="6"/><circle cx="232" cy="230" r="5"/><circle cx="300" cy="248" r="6"/><circle cx="330" cy="300" r="5"/><circle cx="214" cy="330" r="5"/><circle cx="276" cy="356" r="6"/><circle cx="246" cy="292" r="4"/></g>
+</svg>
