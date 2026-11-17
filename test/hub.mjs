@@ -87,6 +87,7 @@ check(st.asks.some(a => /Test task from Citrus/.test(a.title) && a.minutes === 3
 const raw = JSON.stringify(st);
 check(!/very private|secret test win|private Citrus day note|Memo body|More words/.test(raw), 'no journal text and no note bodies in status.json');
 check(!!g.readJsonAt(['My Apps', 'hub', 'bergamot'], 'state.json'), 'state.json in hub/bergamot');
+check(g.find('bergamot', g.path(['My Apps', 'hub']))?.appProperties?.citrusApp === 'bergamot' && st.drive?.byTag === true, 'its own untagged folder is tagged at once, and status.json says drive.byTag');
 check(JSON.stringify(g.readJsonAt(['My Apps', 'hub', 'citrus'], 'state.json')) === JSON.stringify(citrusState) && JSON.stringify(g.readJsonAt(['My Apps', 'hub', 'claude'], 'status.json')) === JSON.stringify(claude), "Citrus's and Claude's files are untouched");
 
 console.log('a second device');
@@ -105,6 +106,30 @@ check(ea.habitLog.ch1['2026-11-15']?.v === 1 && ea.habitLog.ch1['2026-11-12']?.v
 check(!ea.tasks.ct1 && !eb.tasks.ct1, 'a task deleted on the phone stays deleted on both');
 await sync(A.p);
 check(!evs().some(e => /Test task from Citrus/.test(e.summary)), 'deleting the task takes its alarm off the calendar');
+console.log('Citrus moves the folders (drive-layout.md)');
+{
+  const FOLDER = 'application/vnd.google-apps.folder', hub = g.path(['My Apps', 'hub']);
+  const move = (name, to, rename) => { const f = g.find(name, hub); f.appProperties = { ...(f.appProperties || {}), citrusApp: name }; f.parents = [g.path(to)]; if (rename) f.name = rename; g.touch(f); return f; };
+  move('citrus', ['Citrus', '00 Hub'], 'Citrus'); move('claude', ['Citrus', '00 Hub'], 'Claude'); move('mandarin', ['Citrus', 'Work'], 'Mandarin');
+  move('orange', ['Citrus', 'Life'], 'Fitness - Orange'); const bf = move('bergamot', ['Citrus', 'Life'], 'Mind & Journal - Bergamot');
+  // a new inbox item lands in the moved Claude folder
+  const cf = g.find('status.json', g.find('Claude', g.path(['Citrus', '00 Hub'])).id); cf.content = Buffer.from(JSON.stringify({ ...claude, inbox: [...claude.inbox, { id: 'cl-4', type: 'task', title: 'Test item after the move' }] })); g.touch(cf);
+  await A.p.evaluate(() => { const b = window.__bergamot; b.store.update(s => b.N.addNote(s, { id: 'nMoved', title: 'Written after the move', body: 'x' })); });
+  await sync(A.p); await A.p.evaluate(() => window.__bergamot.refreshAll(true, { full: true })); await until(A.p, () => !window.__bergamot.rt.syncing); await sleep(400);
+  const moved = JSON.parse(g.find('state.json', bf.id).content.toString());
+  check(!!moved.notes?.nMoved, 'the phone keeps writing into its moved, renamed folder');
+  check(!g.find('bergamot', hub) && !g.find('mandarin', hub), 'no folder is created again at the old path');
+  await A.p.click('nav.tabs button[data-view=today]'); await sleep(300);
+  check(await until(A.p, () => /Test item after the move/.test(document.querySelector('#view-today').innerText)), 'the inbox is read from the moved Claude folder');
+  const C = await device('fresh tablet', { width: 800 });
+  await sync(C.p);
+  const sc = await state(C.p);
+  check(sc.notes?.nMoved && sc.notes?.nB && !(await C.p.locator('.sheet h2:has-text("Bring your Mind over")').count()), 'a fresh device finds everything by tag');
+  check(await C.p.evaluate(() => window.__bergamot.R.has() && window.__bergamot.rt.hub.goals?.aims?.length === 2), 'shifts and goals come from the moved Mandarin and Citrus folders');
+  check(!g.find('bergamot', hub) && !g.find('My Apps', 'root')?.trashed && [...g.files.values()].filter(f => f.mimeType === FOLDER && f.appProperties?.citrusApp === 'bergamot' && !f.trashed).length === 1, 'still one Bergamot folder, nothing new under My Apps');
+  check(!C.p.errors.length, 'no page errors on the fresh device');
+  await C.ctx.close();
+}
 const twins = g.tree().filter(l => /(status|state)\.json/.test(l) && !/backups|citrus|mandarin|claude|orange/.test(l));
 check(twins.length === new Set(twins).size, `no duplicate files (${twins.length})`);
 check(!A.p.errors.length && !B.p.errors.length, `no page errors${[...A.p.errors, ...B.p.errors].slice(0, 2).join(' | ')}`);

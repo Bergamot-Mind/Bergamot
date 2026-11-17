@@ -126,6 +126,7 @@ check(st.asks.every(a => /^\d{4}-\d\d-\d\d$/.test(a.date) && a.minutes > 0 && a.
 check(st.inbox.every(i => i.type === 'task' && i.id.length <= 60), 'inbox: dated tasks');
 const all = JSON.stringify(st);
 check(!/rota\. #work|Slept in|Finished the audit|Coffee|running plan|App ideas|Another test book/.test(all), 'no journal text and no note bodies in status.json');
+check(st.drive?.byTag === true, 'status.json says Bergamot finds its Drive folders by tag');
 check(st.actions.length === 6 && st.actions.every(a => a.url.startsWith(HUB.SITE_URL)), 'six deep links');
 
 console.log('migration from Citrus');

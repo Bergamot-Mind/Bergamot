@@ -374,21 +374,63 @@ export async function changesSince(tokenStr, maxPages = 20) {
 
 // ════════════════════════════════════════ the hub
 export const APP = 'bergamot';
-const P = (root) => ({ hub: [root, 'hub'], me: [root, 'hub', APP], backups: [root, 'hub', APP, 'backups'], other: (app) => [root, 'hub', app] });
+const P = (root) => ({ hub: [root, 'hub'], legacy: (app) => app === 'rotas' ? [root, 'Rotas'] : app === 'yuzu-data' ? [root, 'Yuzu'] : [root, 'hub', app] });
 
-/** Folder ids Bergamot watches in the changes feed: its own folder, and the folders of the apps it reads (Mandarin, Citrus). */
+// ── Folders are found by tag, never by path (claude/drive-layout.md, 17/11/2026). Citrus tags every app folder with
+// appProperties.citrusApp = "<id>" and later moves it into Citrus/<area>/…; the tag survives moves and renames.
+// The oldest tagged folder wins; the id is cached and checked once per app session. Nothing tagged yet → the old path
+// (My Apps/hub/<id>). Bergamot creates and tags only its own folder there, and never moves or renames it. Once a tagged
+// folder exists anywhere, no folder is ever created by path again (that is how twins appear after a move).
+const tagInflight = new Map();
+export const byTag = true;
+async function findTagged(app) {
+  const p = new URLSearchParams({ q: `mimeType = '${FOLDER}' and trashed = false and appProperties has { key='citrusApp' and value='${q(app)}' }`, fields: 'files(id,name,parents,createdTime)', pageSize: '20', spaces: 'drive' });
+  const j = await gfetch(`${DRIVE}/files?${p}`);
+  return (j.files || []).sort((a, b) => (a.createdTime || '').localeCompare(b.createdTime || ''))[0] || null;
+}
+async function tagFolder(id, app) { await gfetch(`${DRIVE}/files/${encodeURIComponent(id)}?fields=id`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ appProperties: { citrusApp: app } }) }); }
+/** The folder of an app, by its tag. create: only for Bergamot's own folder (created at the old path and tagged at once). */
+export async function appFolder(root, app, { create = false } = {}) {
+  const key = `tag:${app}`;
+  if (ids[key] && await exists(ids[key])) return ids[key];
+  const flight = key + (create ? '+' : '');
+  if (tagInflight.has(flight)) return tagInflight.get(flight);
+  const run = (async () => {
+    let id = (await findTagged(app))?.id || null;
+    if (!id) {
+      id = await ensurePath(P(root).legacy(app), { create: create && app === APP });
+      if (id && app === APP) await tagFolder(id, app).catch(e => console.warn('tag', e.message));   // our own, untagged: tag it now
+    }
+    if (id) { ids[key] = id; verified.add(id); persistIds(); } else delete ids[key];
+    return id;
+  })().finally(() => tagInflight.delete(flight));
+  tagInflight.set(flight, run);
+  return run;
+}
+/** A sub-folder inside a folder we already hold by id (backups/ in our own folder). */
+async function childFolder(parentId, name, { create = true } = {}) {
+  const key = `child:${parentId}/${name}`;
+  if (ids[key] && await exists(ids[key])) return ids[key];
+  const found = (await list(parentId, { name, folders: true })).sort((a, b) => (a.createdTime || '').localeCompare(b.createdTime || ''))[0];
+  const id = found ? found.id : create ? await mkdir(name, parentId) : null;
+  if (id) { ids[key] = id; verified.add(id); persistIds(); }
+  return id;
+}
+const myFolder = (root) => appFolder(root, APP, { create: true });
+const backupsFolder = async (root, create = true) => { const me = await (create ? myFolder(root) : appFolder(root, APP)); return me ? childFolder(me, 'backups', { create }) : null; };
+
+/** Folder ids Bergamot watches in the changes feed: its own folder, and the folders of the apps it reads (Mandarin, Citrus, the inbox). */
 export async function watchedFolders(root) {
-  const [hub, me] = await Promise.all([ensurePath(P(root).hub), ensurePath(P(root).me)]);
-  const [mandarin, citrus] = await Promise.all([ensurePath(P(root).other('mandarin'), { create: false }), ensurePath(P(root).other('citrus'), { create: false })]);
-  return { hub, me, mandarin: mandarin || '', citrus: citrus || '' };
+  const [hub, me, mandarin, citrus, claude] = await Promise.all([ensurePath(P(root).hub, { create: false }), myFolder(root), appFolder(root, 'mandarin'), appFolder(root, 'citrus'), appFolder(root, 'claude')]);
+  return { hub: hub || '', me, mandarin: mandarin || '', citrus: citrus || '', claude: claude || '' };
 }
 
-/** Bergamot's small public file in hub/bergamot: status.json (what Citrus shows). */
-export async function writeOwnFile(root, name, obj, { omit = ['updatedAt'] } = {}) { const dir = await ensurePath(P(root).me); return putJson(dir, name, obj, { omit, healTwins: true }); }
+/** Bergamot's small public file in its folder: status.json (what Citrus shows). */
+export async function writeOwnFile(root, name, obj, { omit = ['updatedAt'] } = {}) { const dir = await myFolder(root); return putJson(dir, name, obj, { omit, healTwins: true }); }
 
-/** Another app's JSON file, read only: hub/<app>/<name>. null when it is not there. Twins are left alone (not ours to tidy). */
+/** Another app's JSON file, read only, from the folder tagged with its id. null when it is not there. Twins are left alone (not ours to tidy). */
 export async function readOtherFile(root, app, name) {
-  const dir = await ensurePath(P(root).other(app), { create: false }); if (!dir) return null;
+  const dir = await appFolder(root, app); if (!dir) return null;
   const { file } = await findFile(dir, name); if (!file) return null;
   const data = await readJsonFile(file);
   return data && typeof data === 'object' ? { data, modifiedTime: file.modifiedTime, id: file.id } : null;
@@ -397,7 +439,7 @@ export async function readOtherFile(root, app, name) {
 // ── Bergamot's own state: read with its revision, written only if nobody else wrote it since
 let seenState = null;   // {id, rev, modifiedTime} of the state.json we last read or wrote
 export async function loadRemoteState(root) {
-  const dir = await ensurePath(P(root).me);
+  const dir = await myFolder(root);
   const { file, twins } = await findFile(dir, 'state.json');
   if (!file) { seenState = null; return null; }
   for (const t of twins) trash(t.id).catch(() => {});
@@ -422,7 +464,7 @@ export async function remoteStateMoved() {
   catch (e) { if (e.status === 404) return true; throw e; }
 }
 export async function saveRemoteState(root, state, { force = false } = {}) {
-  const dir = await ensurePath(P(root).me);
+  const dir = await myFolder(root);
   if (!force && await remoteStateMoved()) { const e = new GoogleError('Another device saved first.', { status: 409 }); e.conflict = true; throw e; }
   const rev = `${Date.now().toString(36)}.${Math.random().toString(36).slice(2, 7)}`;
   const r = await putJson(dir, 'state.json', state, { props: { rev }, fileId: seenState?.id || null, always: force });
@@ -433,7 +475,7 @@ export function seenStateRev() { return seenState?.rev || ''; }
 
 // ── daily backups of state.json: hub/bergamot/backups/state-YYYY-MM-DD.json, the newest 14 kept
 export async function backupDaily(root, state, dayKey) {
-  const dir = await ensurePath(P(root).backups);
+  const dir = await backupsFolder(root);
   const name = `state-${dayKey}.json`, size = JSON.stringify(state).length;
   // today's copy is taken again when the data has grown a lot since (the first sync of day one was an empty 717 B: beta T5-07)
   const had = +ids[`backup:${name}`] || 0;
@@ -450,12 +492,12 @@ export async function backupDaily(root, state, dayKey) {
 }
 /** A copy kept just before a risky step (migration, restore, replace): hub/bergamot/backups/state-YYYY-MM-DD-before-<what>.json. */
 export async function backupBefore(root, state, what) {
-  const dir = await ensurePath(P(root).backups);
+  const dir = await backupsFolder(root);
   const d = new Date(), p2 = (n) => String(n).padStart(2, '0');
   await putJson(dir, `state-${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}-before-${what}-${p2(d.getHours())}${p2(d.getMinutes())}.json`, state);
 }
 export async function listBackups(root) {
-  const dir = await ensurePath(P(root).backups, { create: false }); if (!dir) return [];
+  const dir = await backupsFolder(root, false); if (!dir) return [];
   return (await list(dir, { extra: "name contains 'state-'" })).sort((a, b) => b.name.localeCompare(a.name)).map(f => ({ id: f.id, name: f.name, date: f.name.slice(6, 16), size: +f.size || 0 }));
 }
 export async function readBackup(id) { return readJsonFile({ id }); }

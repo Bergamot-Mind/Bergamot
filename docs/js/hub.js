@@ -54,6 +54,7 @@ export function buildStatus(s, now = new Date(), { apps = {} } = {}) {
   if (st.run > 0) streaks.unshift({ name: 'Journal', days: st.run, unit: 'd' });
   return {
     app: 'bergamot', title: 'Bergamot', icon: '🫖', color: '#c9d86a', url: base, contract: CONTRACT,
+    drive: { byTag: true },   // finds every Drive folder by its citrusApp tag (claude/drive-layout.md): Citrus may move hub/bergamot
     updatedAt: now.toISOString(),
     summary: bits.join(' · ').slice(0, 140),
     today: { date: t, done: st.today && !hd.pending.length && !todayN },

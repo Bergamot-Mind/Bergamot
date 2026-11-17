@@ -22,7 +22,7 @@ import { ctx } from './bits.js';
 import { checkBackup, describeCounts } from './backup-check.js';
 import { h, toast, keyOf, fmtDate, pad2, DAY_NAMES, MONTHS, uid } from './util.js';
 
-export const VERSION = '1.0.0';
+export const VERSION = '1.0.1';
 const CITRUS_URL = 'https://amaerys.github.io/citrus-maxima/';
 const MANDARIN_URL = 'https://mandarin-work.github.io/Mandarin/';
 
@@ -317,15 +317,19 @@ async function refreshAll(manual, { full = false } = {}) {
 /** Turn a page of Drive changes into the smallest sync that covers them. null = can't tell, do a full pass. */
 function classifyChanges(changes, w) {
   const plan = { state: false, hub: false };
-  const roots = new Set([w.hub, w.me].filter(Boolean));
+  const roots = new Set([w.me].filter(Boolean));
   for (const c of changes) {
     if (roots.has(c.id) && (c.removed || c.trashed || !(c.parents || []).length)) { G.forgetFolders(); return null; }   // one of our folders vanished: rebuild
     const par = c.parents || [];
     if (par.includes(w.me) && c.name === 'state.json' && (c.props?.rev || '') !== G.seenStateRev()) plan.state = true;
     if (w.mandarin && par.includes(w.mandarin) && c.name === 'shifts.json') plan.hub = true;
     if (w.citrus && par.includes(w.citrus) && c.name === 'plan.json') plan.hub = true;
+    if (w.claude && par.includes(w.claude) && c.name === 'status.json') plan.hub = true;
     if (c.name === 'status.json' && !par.includes(w.me)) plan.hub = true;   // the inbox (hub/claude) or an app a habit counts from
-    if (par.includes(w.hub) && c.mimeType === 'application/vnd.google-apps.folder' && (c.name === 'mandarin' || c.name === 'citrus') && c.id !== w.mandarin && c.id !== w.citrus) return null;   // a folder Bergamot reads appeared: full pass
+    // folders are found by tag (claude/drive-layout.md): a folder newly tagged for an app Bergamot reads, other than the one
+    // it holds, means Citrus tagged or re-tagged it — look the folders up again in a full pass
+    const tag = c.props?.citrusApp;
+    if (c.mimeType === 'application/vnd.google-apps.folder' && tag && ['bergamot', 'mandarin', 'citrus', 'claude'].includes(tag) && c.id !== w[tag === 'bergamot' ? 'me' : tag]) { G.forgetFolders(); return null; }
   }
   return plan;
 }

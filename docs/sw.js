@@ -1,5 +1,5 @@
 // Bergamot service worker: precached app shell, network-first with a short timeout, Google Fonts cached for offline.
-const CACHE = 'bergamot-fba2ae7e33';
+const CACHE = 'bergamot-35b3a74372';
 const FONTS = 'bergamot-fonts-v1';   // kept across releases: font files are immutable, no need to fetch them again
 const FONT_CSS = 'https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&family=Pixelify+Sans:wght@500;700&family=Source+Sans+3:wght@400;600;700&family=JetBrains+Mono:wght@500&display=swap';
 // Without these the app cannot start offline: install fails (and the old worker stays) if one is missing.
